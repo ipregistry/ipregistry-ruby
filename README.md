@@ -3,7 +3,7 @@
 
 [![License](http://img.shields.io/:license-apache-blue.svg)](LICENSE)
 [![Gem Version](https://img.shields.io/gem/v/ipregistry)](https://rubygems.org/gems/ipregistry)
-[![CI](https://github.com/ipregistry/ipregistry-ruby/actions/workflows/ci.yml/badge.svg)](https://github.com/ipregistry/ipregistry-ruby/actions/workflows/ci.yml)
+[![CI](https://github.com/ipregistry/ipregistry-ruby/actions/workflows/ci.yaml/badge.svg)](https://github.com/ipregistry/ipregistry-ruby/actions/workflows/ci.yaml)
 
 This is the official Ruby client library for the [Ipregistry](https://ipregistry.co) IP geolocation and threat data
 API, allowing you to look up your own IP address or specified ones. Responses return multiple data points including
