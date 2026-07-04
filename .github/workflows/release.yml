@@ -1,0 +1,138 @@
+name: Release
+
+# Manually triggered full release: validates the version, runs the test gate
+# (lint, unit specs, and live system specs), builds the gem, creates the
+# vX.Y.Z tag and a GitHub Release whose notes are taken from the matching
+# section of CHANGELOG.md, and publishes the gem to RubyGems.
+#
+# Requirements:
+# - lib/ipregistry/version.rb must already declare the version being released.
+# - CHANGELOG.md must already contain a "## [X.Y.Z] - <date>" section.
+# - Secrets: IPREGISTRY_API_KEY (system-test gate) and RUBYGEMS_API_KEY
+#   (rubygems.org push permission for the ipregistry gem).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 1.2.0 or v1.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Validate version
+        # The raw input is passed through the environment (never interpolated
+        # into the shell) and strictly validated before any further use.
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${VERSION_INPUT#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::Invalid version '$VERSION_INPUT'. Expected semver such as 1.2.0 or v1.2.0."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TAG=v$version" >> "$GITHUB_ENV"
+
+      - name: Ensure version.rb matches
+        run: |
+          set -euo pipefail
+          declared="$(ruby -r ./lib/ipregistry/version -e 'puts Ipregistry::VERSION')"
+          if [ "$declared" != "$VERSION" ]; then
+            echo "::error::lib/ipregistry/version.rb declares $declared but the release input is $VERSION."
+            exit 1
+          fi
+
+      - name: Ensure tag does not already exist
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists on the remote."
+            exit 1
+          fi
+
+      - name: Extract changelog section
+        run: |
+          set -euo pipefail
+          awk -v ver="$VERSION" '
+            $0 ~ ("^## \\[" ver "\\]") { capture=1; next }
+            capture && (/^## / || /^\[[^][]+\]:[[:space:]]/) { exit }
+            capture { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No changelog section found for [$VERSION] in CHANGELOG.md."
+            exit 1
+          fi
+          echo "Release notes for $TAG:"
+          echo "----------------------------------------"
+          cat release-notes.md
+          echo "----------------------------------------"
+
+      - name: Run lint and local specs
+        run: |
+          bundle exec rubocop
+          bundle exec rake spec
+
+      - name: Run system specs (live API)
+        env:
+          IPREGISTRY_API_KEY: ${{ secrets.IPREGISTRY_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${IPREGISTRY_API_KEY:-}" ]; then
+            echo "::error::IPREGISTRY_API_KEY secret is required to run system specs before a release."
+            exit 1
+          fi
+          bundle exec rake system
+
+      - name: Build gem
+        run: |
+          set -euo pipefail
+          gem build ipregistry.gemspec
+          test -f "ipregistry-$VERSION.gem"
+
+      - name: Create tag and GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          prerelease=""
+          case "$VERSION" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$TAG" "ipregistry-$VERSION.gem" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            $prerelease
+          echo "Released $TAG: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
+
+      - name: Publish to RubyGems
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GEM_HOST_API_KEY:-}" ]; then
+            echo "::error::RUBYGEMS_API_KEY secret is required to publish the gem."
+            exit 1
+          fi
+          gem push "ipregistry-$VERSION.gem"
