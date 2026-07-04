@@ -39,10 +39,13 @@ Before opening a pull request, please make sure `bundle exec rake` passes.
 
 ## Releasing
 
-Releases are performed by the manually triggered [Release workflow](.github/workflows/release.yml): bump
+Releases are performed by the manually triggered [Release workflow](.github/workflows/release.yaml): bump
 `lib/ipregistry/version.rb`, move the `[Unreleased]` notes to a new `## [X.Y.Z] - <date>` section in `CHANGELOG.md`,
 merge to `main`, then dispatch the workflow with the version. It validates everything, runs the full test gate
-(including live system specs), creates the `vX.Y.Z` tag and GitHub Release, and publishes the gem to RubyGems.
+(including live system specs), creates the `vX.Y.Z` tag and GitHub Release, and publishes the gem to RubyGems via
+[Trusted Publishing](https://guides.rubygems.org/trusted-publishing/) (OIDC) — no RubyGems API key is stored as a
+secret. The trusted publisher on rubygems.org must reference this repository, the `release.yaml` workflow, and the
+`release` environment; for a first-ever release, register it as a *pending* trusted publisher.
 
 ## Reporting issues
 

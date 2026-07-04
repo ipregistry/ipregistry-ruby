@@ -1,15 +1,23 @@
 name: Release
 
 # Manually triggered full release: validates the version, runs the test gate
-# (lint, unit specs, and live system specs), builds the gem, creates the
-# vX.Y.Z tag and a GitHub Release whose notes are taken from the matching
-# section of CHANGELOG.md, and publishes the gem to RubyGems.
+# (lint, unit specs, and live system specs), then hands over to the official
+# rubygems/release-gem action — which builds the gem, creates and pushes the
+# vX.Y.Z tag, and publishes to RubyGems via OIDC Trusted Publishing (no API
+# key secret) — and finally creates a GitHub Release whose notes are taken
+# from the matching section of CHANGELOG.md.
 #
 # Requirements:
 # - lib/ipregistry/version.rb must already declare the version being released.
 # - CHANGELOG.md must already contain a "## [X.Y.Z] - <date>" section.
-# - Secrets: IPREGISTRY_API_KEY (system-test gate) and RUBYGEMS_API_KEY
-#   (rubygems.org push permission for the ipregistry gem).
+# - A trusted publisher configured on rubygems.org for the "ipregistry" gem,
+#   pointing at this repository, workflow file "release.yaml", and environment
+#   "release". For the very first release, register it as a *pending* trusted
+#   publisher (Profile -> Trusted publishers) since the gem does not exist on
+#   rubygems.org yet; the first successful push converts it to a normal one.
+#   See https://guides.rubygems.org/trusted-publishing/
+# - Secret IPREGISTRY_API_KEY for the system-test gate. No RubyGems API key
+#   is needed thanks to trusted publishing.
 on:
   workflow_dispatch:
     inputs:
@@ -18,9 +26,6 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
-
 concurrency:
   group: release
   cancel-in-progress: false
@@ -28,10 +33,15 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # push the release tag, create the GitHub Release
+      id-token: write # mandatory for RubyGems Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -72,20 +82,22 @@ jobs:
           fi
 
       - name: Extract changelog section
+        # Written outside the workspace: rake release (run by release-gem
+        # below) requires a pristine git tree.
         run: |
           set -euo pipefail
           awk -v ver="$VERSION" '
             $0 ~ ("^## \\[" ver "\\]") { capture=1; next }
             capture && (/^## / || /^\[[^][]+\]:[[:space:]]/) { exit }
             capture { print }
-          ' CHANGELOG.md | sed -e '/./,$!d' > release-notes.md
-          if [ ! -s release-notes.md ]; then
+          ' CHANGELOG.md | sed -e '/./,$!d' > "$RUNNER_TEMP/release-notes.md"
+          if [ ! -s "$RUNNER_TEMP/release-notes.md" ]; then
             echo "::error::No changelog section found for [$VERSION] in CHANGELOG.md."
             exit 1
           fi
           echo "Release notes for $TAG:"
           echo "----------------------------------------"
-          cat release-notes.md
+          cat "$RUNNER_TEMP/release-notes.md"
           echo "----------------------------------------"
 
       - name: Run lint and local specs
@@ -104,13 +116,20 @@ jobs:
           fi
           bundle exec rake system
 
-      - name: Build gem
-        run: |
-          set -euo pipefail
-          gem build ipregistry.gemspec
-          test -f "ipregistry-$VERSION.gem"
+      - name: Build, tag, and publish to RubyGems (Trusted Publishing)
+        # Runs `rake release`: builds pkg/ipregistry-X.Y.Z.gem, creates and
+        # pushes the vX.Y.Z tag, publishes via OIDC, and waits until the gem
+        # is available on rubygems.org.
+        #
+        # The default Actions token (GITHUB_TOKEN) may be blocked by an
+        # organization rule from creating v*-prefixed tags. Provide a
+        # RELEASE_TOKEN secret (a PAT owned by a user allowed to create such
+        # tags, with Contents: write) so the tag is pushed as that user.
+        uses: rubygems/release-gem@v1
+        with:
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Create tag and GitHub release
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -119,20 +138,9 @@ jobs:
           case "$VERSION" in
             *-*) prerelease="--prerelease" ;;
           esac
-          gh release create "$TAG" "ipregistry-$VERSION.gem" \
-            --target "$GITHUB_SHA" \
+          gh release create "$TAG" "pkg/ipregistry-$VERSION.gem" \
+            --verify-tag \
             --title "$TAG" \
-            --notes-file release-notes.md \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             $prerelease
           echo "Released $TAG: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
-
-      - name: Publish to RubyGems
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${GEM_HOST_API_KEY:-}" ]; then
-            echo "::error::RUBYGEMS_API_KEY secret is required to publish the gem."
-            exit 1
-          fi
-          gem push "ipregistry-$VERSION.gem"
