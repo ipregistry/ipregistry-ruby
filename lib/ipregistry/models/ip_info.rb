@@ -17,9 +17,12 @@ module Ipregistry
     # Network connection information for the IP address. The ASN is the
     # Autonomous System Number (nil when unknown), and the type classifies
     # the network ("business", "education", "government", "hosting",
-    # "inactive", or "isp").
+    # "inactive", or "isp"). The +anycast?+ predicate reports whether the IP
+    # address is announced via anycast, i.e. simultaneously from multiple
+    # locations.
     class Connection < Base
       field :asn, :domain, :organization, :route, :type
+      flag :anycast, key: "is_anycast"
     end
 
     # Prefix and suffix applied around a formatted monetary value (for example

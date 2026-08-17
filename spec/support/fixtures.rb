@@ -14,6 +14,7 @@ module Fixtures
       "connection" => {
         "asn" => 15_169,
         "domain" => "google.com",
+        "is_anycast" => true,
         "organization" => "Google LLC",
         "route" => "8.8.8.0/24",
         "type" => "business"

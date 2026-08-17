@@ -38,6 +38,7 @@ RSpec.describe Ipregistry::Models do
     it "exposes connection, company, and carrier data" do
       expect(info.connection.asn).to eq(15_169)
       expect(info.connection.route).to eq("8.8.8.0/24")
+      expect(info.connection.anycast?).to be(true)
       expect(info.company.name).to eq("Google LLC")
       expect(info.carrier.mcc).to eq("310")
     end
@@ -84,6 +85,7 @@ RSpec.describe Ipregistry::Models do
         expect(info.location.country.borders).to eq([])
         expect(info.location.country.languages).to eq([])
         expect(info.currency.format.negative.prefix).to be_nil
+        expect(info.connection.anycast?).to be(false)
         expect(info.security.vpn?).to be(false)
         expect(info.location.in_eu?).to be(false)
         expect(info.time_zone.offset).to be_nil
