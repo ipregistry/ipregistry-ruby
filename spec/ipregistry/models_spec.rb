@@ -57,6 +57,12 @@ RSpec.describe Ipregistry::Models do
       expect(info.security.vpn?).to be(false)
       expect(info.security.threat?).to be(false)
       expect(info.security.tor_exit?).to be(false)
+      expect(info.security.residential_proxy?).to be(false)
+    end
+
+    it "exposes the residential proxy flag" do
+      info = described_class.new("security" => { "is_proxy" => true, "is_residential_proxy" => true })
+      expect(info.security.residential_proxy?).to be(true)
     end
 
     it "exposes time zone data" do
@@ -87,6 +93,7 @@ RSpec.describe Ipregistry::Models do
         expect(info.currency.format.negative.prefix).to be_nil
         expect(info.connection.anycast?).to be(false)
         expect(info.security.vpn?).to be(false)
+        expect(info.security.residential_proxy?).to be(false)
         expect(info.location.in_eu?).to be(false)
         expect(info.time_zone.offset).to be_nil
       end

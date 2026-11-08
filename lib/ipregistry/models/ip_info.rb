@@ -47,13 +47,16 @@ module Ipregistry
       embeds :format, :CurrencyFormat
     end
 
-    # Threat-intelligence flags for the IP address.
+    # Threat-intelligence flags for the IP address. The +residential_proxy?+
+    # predicate reports whether the IP address is a node of a residential
+    # proxy network.
     class Security < Base
       flag :abuser, key: "is_abuser"
       flag :attacker, key: "is_attacker"
       flag :bogon, key: "is_bogon"
       flag :cloud_provider, key: "is_cloud_provider"
       flag :proxy, key: "is_proxy"
+      flag :residential_proxy, key: "is_residential_proxy"
       flag :relay, key: "is_relay"
       flag :tor, key: "is_tor"
       flag :tor_exit, key: "is_tor_exit"
